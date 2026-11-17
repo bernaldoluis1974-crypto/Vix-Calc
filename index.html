@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VIX Calc</title>
+<meta name="theme-color" content="#0f1115">
+<meta name="description" content="Movimiento esperado del SPX a partir del VIX, VIX1D y straddle 0DTE">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root{
+    --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --txt:#e8eaef; --mut:#9aa3b2;
+    --acc:#4f8cff; --g:#2fbf71; --y:#e8b730; --o:#f08a24; --r:#e5484d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;max-width:720px;margin-inline:auto}
+  h1{font-size:20px;margin:4px 0 2px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+  .card h2{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin:0 0 10px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
+  input{width:100%;background:#0c0e12;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:10px;font-size:16px}
+  input:focus{outline:none;border-color:var(--acc)}
+  .opt{font-size:11px;color:#6d7586}
+  .row{display:flex;gap:8px;align-items:center}
+  .btn{background:#232836;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:10px 12px;font-size:13px;white-space:nowrap}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{padding:8px 4px;text-align:right;border-bottom:1px solid var(--line);font-size:14px}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--mut);font-weight:500;font-size:12px}
+  .big{font-size:26px;font-weight:700}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:13px;font-weight:600}
+  .note{color:var(--mut);font-size:12.5px;margin-top:8px}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .kpi{background:#11141a;border:1px solid var(--line);border-radius:10px;padding:10px}
+  .kpi .l{font-size:11px;color:var(--mut)}
+  .kpi .v{font-size:18px;font-weight:700;margin-top:2px}
+  .lo{color:var(--r)} .hi{color:var(--g)}
+  @media (max-width:420px){.kpis{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<h1>Movimiento esperado del SPX</h1>
+<div class="sub">A partir del VIX, el VIX1D y el straddle 0DTE. 1σ ≈ 68 % · 2σ ≈ 95 %</div>
+
+<div class="card">
+  <h2>Datos</h2>
+  <div class="grid">
+    <div><label>Precio SPX</label><input id="px" type="number" inputmode="decimal" step="0.01" value="6000"></div>
+    <div><label>VIX</label><input id="vix" type="number" inputmode="decimal" step="0.01" value="18"></div>
+    <div><label>VIX1D <span class="opt">(opcional)</span></label><input id="vix1d" type="number" inputmode="decimal" step="0.01" placeholder="p. ej. 14"></div>
+    <div><label>VIX3M <span class="opt">(opcional)</span></label><input id="vix3m" type="number" inputmode="decimal" step="0.01" placeholder="p. ej. 20"></div>
+    <div><label>Straddle ATM 0DTE ($) <span class="opt">(opcional)</span></label><input id="strd" type="number" inputmode="decimal" step="0.05" placeholder="p. ej. 45"></div>
+    <div><label>Hora (ET)</label>
+      <div class="row"><input id="hora" type="time"><button class="btn" id="ahora">Ahora</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Régimen</h2>
+  <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <span id="reg" class="pill"></span>
+    <span id="ts" class="pill"></span>
+  </div>
+  <div class="note" id="regtxt"></div>
+</div>
+
+<div class="card">
+  <h2>Hoy — día completo</h2>
+  <div class="kpis">
+    <div class="kpi"><div class="l">1σ según VIX</div><div class="v" id="k1"></div></div>
+    <div class="kpi"><div class="l">1σ según VIX1D</div><div class="v" id="k2"></div></div>
+    <div class="kpi"><div class="l">Straddle (mov. esp.)</div><div class="v" id="k3"></div></div>
+  </div>
+  <table style="margin-top:10px">
+    <thead><tr><th>Fuente</th><th>−2σ</th><th>−1σ</th><th>+1σ</th><th>+2σ</th></tr></thead>
+    <tbody id="tdia"></tbody>
+  </table>
+  <div class="note">Para 0DTE, el VIX1D y el straddle reflejan mejor el día que el VIX (30 días). El straddle ATM equivale a ~0.8σ, así que 1σ ≈ straddle ÷ 0.8.</div>
+</div>
+
+<div class="card">
+  <h2>Lo que queda de sesión</h2>
+  <div class="row" style="justify-content:space-between">
+    <div><div class="note" style="margin:0">Fracción restante (9:30–16:00)</div><div class="big" id="frac"></div></div>
+    <div style="text-align:right"><div class="note" style="margin:0">Factor √</div><div class="big" id="sq"></div></div>
+  </div>
+  <table style="margin-top:10px">
+    <thead><tr><th>Fuente</th><th>±1σ pts</th><th>−1σ</th><th>+1σ</th></tr></thead>
+    <tbody id="trest"></tbody>
+  </table>
+  <div class="note">Rango = 1σ diario × √(fracción del día que falta). Se calcula desde el precio actual, no desde la apertura.</div>
+</div>
+
+<div class="card">
+  <h2>Otros horizontes (VIX)</h2>
+  <table>
+    <thead><tr><th>Horizonte</th><th>±1σ %</th><th>±1σ pts</th><th>Rango 1σ</th></tr></thead>
+    <tbody id="thor"></tbody>
+  </table>
+</div>
+
+<div class="note" style="text-align:center;margin:8px 0 20px">Herramienta educativa. La volatilidad implícita mide la magnitud esperada, no la dirección.</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const n = id => { const v = parseFloat($(id).value); return isFinite(v) && v > 0 ? v : null; };
+const f0 = x => x.toLocaleString('es', {maximumFractionDigits:0});
+const f1 = x => x.toLocaleString('es', {minimumFractionDigits:1, maximumFractionDigits:1});
+const f2 = x => x.toLocaleString('es', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+function etNow(){
+  const p = new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date());
+  let h = p.find(x=>x.type==='hour').value, m = p.find(x=>x.type==='minute').value;
+  if (h === '24') h = '00';
+  return `${h}:${m}`;
+}
+function setNow(){ $('hora').value = etNow(); calc(); }
+
+function regime(v){
+  if (v < 12) return ['Muy baja (<12)', 'var(--g)', 'Calma extrema y complacencia. Primas baratas; rangos estrechos.'];
+  if (v < 20) return ['Normal (12–20)', 'var(--acc)', 'Rango habitual. La media histórica ronda 19.'];
+  if (v < 30) return ['Elevada (20–30)', 'var(--y)', 'Nerviosismo: rangos amplios y movimientos bruscos.'];
+  if (v < 40) return ['Estrés (30–40)', 'var(--o)', 'Miedo en el mercado; latigazos frecuentes.'];
+  return ['Pánico (>40)', 'var(--r)', 'Estrés extremo. Rangos muy amplios e impredecibles.'];
+}
+
+function row(name, px, s){
+  if (s == null) return `<tr><td>${name}</td><td colspan="4" style="text-align:center;color:#6d7586">—</td></tr>`;
+  return `<tr><td>${name}<div class="opt">±${f1(s)} pts</div></td>
+    <td class="lo">${f2(px-2*s)}</td><td class="lo">${f2(px-s)}</td>
+    <td class="hi">${f2(px+s)}</td><td class="hi">${f2(px+2*s)}</td></tr>`;
+}
+
+function calc(){
+  const px = n('px'), vix = n('vix'), v1 = n('vix1d'), v3 = n('vix3m'), st = n('strd');
+  if (!px || !vix){ return; }
+
+  // régimen
+  const [rl, rc, rt] = regime(vix);
+  $('reg').textContent = 'VIX: ' + rl; $('reg').style.background = rc; $('reg').style.color = '#0f1115';
+  if (v3){
+    const r = vix / v3;
+    const back = r >= 1;
+    $('ts').textContent = `VIX/VIX3M = ${f2(r)} · ${back ? 'Backwardation' : 'Contango'}`;
+    $('ts').style.background = back ? 'var(--r)' : '#232836';
+    $('ts').style.color = back ? '#0f1115' : 'var(--txt)';
+    $('regtxt').textContent = rt + (back ? ' Curva invertida: estrés inmediato.' : ' Curva normal.');
+  } else {
+    $('ts').textContent = 'Añade VIX3M para ver la curva';
+    $('ts').style.background = '#232836'; $('ts').style.color = 'var(--mut)';
+    $('regtxt').textContent = rt;
+  }
+
+  // diario
+  const sVix = px * vix / 100 / Math.sqrt(252);
+  const sV1  = v1 ? px * v1 / 100 / Math.sqrt(252) : null;
+  const sSt  = st ? st / 0.8 : null;
+  $('k1').textContent = `±${f0(sVix)}`;
+  $('k2').textContent = sV1 ? `±${f0(sV1)}` : '—';
+  $('k3').textContent = st ? `±${f0(st)}` : '—';
+  $('tdia').innerHTML =
+    row('VIX ÷ 16', px, sVix) +
+    row('VIX1D', px, sV1) +
+    row('Straddle ÷ 0.8', px, sSt);
+
+  // resto de sesión
+  let frac = 1;
+  const t = $('hora').value;
+  if (t){
+    const [h, m] = t.split(':').map(Number);
+    const mins = h*60 + m, open = 570, close = 960;
+    frac = mins <= open ? 1 : mins >= close ? 0 : (close - mins) / 390;
+  }
+  const sq = Math.sqrt(frac);
+  $('frac').textContent = Math.round(frac*100) + ' %';
+  $('sq').textContent = f2(sq);
+  const rr = (name, s) => s == null ? '' :
+    `<tr><td>${name}</td><td>±${f1(s*sq)}</td><td class="lo">${f2(px - s*sq)}</td><td class="hi">${f2(px + s*sq)}</td></tr>`;
+  $('trest').innerHTML = frac === 0
+    ? `<tr><td colspan="4" style="text-align:center;color:#6d7586">Sesión cerrada</td></tr>`
+    : rr('VIX', sVix) + rr('VIX1D', sV1) + rr('Straddle', sSt);
+
+  // horizontes
+  const H = [['Diario', 252], ['Semanal', 52], ['30 días', 12], ['Anual', 1]];
+  $('thor').innerHTML = H.map(([nm, d]) => {
+    const pct = vix / Math.sqrt(d), pts = px * pct / 100;
+    return `<tr><td>${nm}</td><td>±${f2(pct)} %</td><td>±${f0(pts)}</td><td>${f0(px-pts)} – ${f0(px+pts)}</td></tr>`;
+  }).join('');
+}
+
+// --- Recordar últimos valores ---
+const FIELDS = ['px','vix','vix1d','vix3m','strd'];
+function save(){
+  try { localStorage.setItem('vixcalc', JSON.stringify(Object.fromEntries(FIELDS.map(id => [id, $(id).value])))); } catch(e){}
+}
+function load(){
+  try {
+    const d = JSON.parse(localStorage.getItem('vixcalc') || '{}');
+    FIELDS.forEach(id => { if (d[id] != null) $(id).value = d[id]; });
+  } catch(e){}
+}
+
+// --- Hora: se actualiza sola cada minuto salvo que la cambies a mano ---
+let autoTime = true;
+FIELDS.forEach(id => $(id).addEventListener('input', () => { calc(); save(); }));
+$('hora').addEventListener('input', () => { autoTime = false; calc(); });
+$('ahora').addEventListener('click', () => { autoTime = true; setNow(); });
+setInterval(() => { if (autoTime) setNow(); }, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && autoTime) setNow(); });
+
+load();
+setNow();
+
+// --- Modo sin conexión ---
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>

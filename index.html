@@ -49,7 +49,8 @@
 <div class="card">
   <h2>Datos</h2>
   <div class="grid">
-    <div><label>Precio SPX</label><input id="px" type="number" inputmode="decimal" step="0.01" value="6000"></div>
+    <div><label>Precio SPX actual</label><input id="px" type="number" inputmode="decimal" step="0.01" value="6000"></div>
+    <div><label>Apertura o cierre previo <span class="opt">(ancla del día)</span></label><input id="ref" type="number" inputmode="decimal" step="0.01" placeholder="si vacío, usa el actual"></div>
     <div><label>VIX</label><input id="vix" type="number" inputmode="decimal" step="0.01" value="18"></div>
     <div><label>VIX1D <span class="opt">(opcional)</span></label><input id="vix1d" type="number" inputmode="decimal" step="0.01" placeholder="p. ej. 14"></div>
     <div><label>VIX3M <span class="opt">(opcional)</span></label><input id="vix3m" type="number" inputmode="decimal" step="0.01" placeholder="p. ej. 20"></div>
@@ -80,20 +81,21 @@
     <thead><tr><th>Fuente</th><th>−2σ</th><th>−1σ</th><th>+1σ</th><th>+2σ</th></tr></thead>
     <tbody id="tdia"></tbody>
   </table>
+  <div class="note" id="anchor"></div>
   <div class="note">Para 0DTE, el VIX1D y el straddle reflejan mejor el día que el VIX (30 días). El straddle ATM equivale a ~0.8σ, así que 1σ ≈ straddle ÷ 0.8.</div>
 </div>
 
 <div class="card">
   <h2>Lo que queda de sesión</h2>
   <div class="row" style="justify-content:space-between">
-    <div><div class="note" style="margin:0">Fracción restante (9:30–16:00)</div><div class="big" id="frac"></div></div>
-    <div style="text-align:right"><div class="note" style="margin:0">Factor √</div><div class="big" id="sq"></div></div>
+    <div><div class="note" style="margin:0">Varianza restante</div><div class="big" id="frac"></div><div class="opt" id="tfrac"></div></div>
+    <div style="text-align:right"><div class="note" style="margin:0">Factor √</div><div class="big" id="sq"></div><div class="opt" id="tsq"></div></div>
   </div>
   <table style="margin-top:10px">
     <thead><tr><th>Fuente</th><th>±1σ pts</th><th>−1σ</th><th>+1σ</th></tr></thead>
     <tbody id="trest"></tbody>
   </table>
-  <div class="note">Rango = 1σ diario × √(fracción del día que falta). Se calcula desde el precio actual, no desde la apertura.</div>
+  <div class="note">Rango = 1σ diario × √(varianza que falta). La volatilidad intradía tiene forma de U (más al abrir y al cerrar), así que cada tramo de 30 min pesa distinto: la última hora vale más que una hora a mediodía. Pesos aproximados, típicos del SPX. Se calcula desde el precio actual.</div>
 </div>
 
 <div class="card">
@@ -129,6 +131,22 @@ function regime(v){
   return ['Pánico (>40)', 'var(--r)', 'Estrés extremo. Rangos muy amplios e impredecibles.'];
 }
 
+// Peso relativo de varianza por tramo de 30 min (9:30 → 16:00). Curva en U aproximada del SPX.
+const W = [2.0, 1.4, 1.1, 0.95, 0.85, 0.75, 0.75, 0.8, 0.85, 0.95, 1.0, 1.1, 1.5];
+const WT = W.reduce((a, b) => a + b, 0);
+function remaining(t){
+  const open = 570, close = 960;
+  if (!t) return { tf: 1, vf: 1 };
+  const [h, m] = t.split(':').map(Number);
+  const mins = h*60 + m;
+  if (mins <= open) return { tf: 1, vf: 1 };
+  if (mins >= close) return { tf: 0, vf: 0 };
+  const el = mins - open, i = Math.floor(el / 30), part = (el % 30) / 30;
+  let left = W[i] * (1 - part);
+  for (let k = i + 1; k < W.length; k++) left += W[k];
+  return { tf: (close - mins) / 390, vf: left / WT };
+}
+
 function row(name, px, s){
   if (s == null) return `<tr><td>${name}</td><td colspan="4" style="text-align:center;color:#6d7586">—</td></tr>`;
   return `<tr><td>${name}<div class="opt">±${f1(s)} pts</div></td>
@@ -139,6 +157,7 @@ function row(name, px, s){
 function calc(){
   const px = n('px'), vix = n('vix'), v1 = n('vix1d'), v3 = n('vix3m'), st = n('strd');
   if (!px || !vix){ return; }
+  const ref = n('ref') || px;   // ancla del día completo
 
   // régimen
   const [rl, rc, rt] = regime(vix);
@@ -156,32 +175,31 @@ function calc(){
     $('regtxt').textContent = rt;
   }
 
-  // diario
-  const sVix = px * vix / 100 / Math.sqrt(252);
-  const sV1  = v1 ? px * v1 / 100 / Math.sqrt(252) : null;
+  // diario (anclado a la apertura / cierre previo)
+  const sVix = ref * vix / 100 / Math.sqrt(252);
+  const sV1  = v1 ? ref * v1 / 100 / Math.sqrt(252) : null;
   const sSt  = st ? st / 0.8 : null;
   $('k1').textContent = `±${f0(sVix)}`;
   $('k2').textContent = sV1 ? `±${f0(sV1)}` : '—';
   $('k3').textContent = st ? `±${f0(st)}` : '—';
   $('tdia').innerHTML =
-    row('VIX ÷ 16', px, sVix) +
-    row('VIX1D', px, sV1) +
-    row('Straddle ÷ 0.8', px, sSt);
+    row('VIX ÷ √252', ref, sVix) +
+    row('VIX1D ÷ √252', ref, sV1) +
+    row('Straddle ÷ 0.8', ref, sSt);
+  $('anchor').textContent = n('ref')
+    ? `Rangos anclados en ${f2(ref)} (apertura / cierre previo). Fijos durante todo el día.`
+    : 'Sin apertura: los rangos se anclan en el precio actual y se moverán con él. Rellena «Apertura o cierre previo» para fijarlos.';
 
   // resto de sesión
-  let frac = 1;
-  const t = $('hora').value;
-  if (t){
-    const [h, m] = t.split(':').map(Number);
-    const mins = h*60 + m, open = 570, close = 960;
-    frac = mins <= open ? 1 : mins >= close ? 0 : (close - mins) / 390;
-  }
-  const sq = Math.sqrt(frac);
-  $('frac').textContent = Math.round(frac*100) + ' %';
+  const { tf, vf } = remaining($('hora').value);
+  const sq = Math.sqrt(vf);
+  $('frac').textContent = Math.round(vf*100) + ' %';
   $('sq').textContent = f2(sq);
+  $('tfrac').textContent = `Tiempo restante: ${Math.round(tf*100)} %`;
+  $('tsq').textContent = `Lineal: ${f2(Math.sqrt(tf))}`;
   const rr = (name, s) => s == null ? '' :
     `<tr><td>${name}</td><td>±${f1(s*sq)}</td><td class="lo">${f2(px - s*sq)}</td><td class="hi">${f2(px + s*sq)}</td></tr>`;
-  $('trest').innerHTML = frac === 0
+  $('trest').innerHTML = vf === 0
     ? `<tr><td colspan="4" style="text-align:center;color:#6d7586">Sesión cerrada</td></tr>`
     : rr('VIX', sVix) + rr('VIX1D', sV1) + rr('Straddle', sSt);
 
@@ -194,7 +212,7 @@ function calc(){
 }
 
 // --- Recordar últimos valores ---
-const FIELDS = ['px','vix','vix1d','vix3m','strd'];
+const FIELDS = ['px','ref','vix','vix1d','vix3m','strd'];
 function save(){
   try { localStorage.setItem('vixcalc', JSON.stringify(Object.fromEntries(FIELDS.map(id => [id, $(id).value])))); } catch(e){}
 }
